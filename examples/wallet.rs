@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
     let (mut node, mut client) = LightClientBuilder::new(&wallet)
         .add_birthday(header_cp)
         .add_peers(peers)
+        .add_data_dir(".".parse().unwrap())
         .build()
         .await;
 

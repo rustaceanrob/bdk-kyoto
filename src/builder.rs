@@ -1,6 +1,6 @@
 //! [`bdk_kyoto::Client`] builder
 
-use std::{collections::HashSet, net::IpAddr};
+use std::{collections::HashSet, net::IpAddr, path::PathBuf};
 
 use bdk_wallet::{
     chain::{local_chain::CheckPoint, BlockId},
@@ -26,6 +26,7 @@ pub struct LightClientBuilder<'a> {
     peers: Option<Vec<TrustedPeer>>,
     required_peers: Option<u8>,
     birthday: Option<CheckPoint>,
+    path: Option<PathBuf>,
 }
 
 impl<'a> LightClientBuilder<'a> {
@@ -36,6 +37,7 @@ impl<'a> LightClientBuilder<'a> {
             peers: None,
             required_peers: None,
             birthday: None,
+            path: None,
         }
     }
 
@@ -51,11 +53,20 @@ impl<'a> LightClientBuilder<'a> {
         self
     }
 
+    /// Add peers to connect to over the P2P network.
+    pub fn add_data_dir(mut self, path: PathBuf) -> Self {
+        self.path = Some(path);
+        self
+    }
+
     /// Build a light client node and a client to interact with the node
     pub async fn build(self) -> (Node, Client<KeychainKind>) {
         let mut node_builder = NodeBuilder::new(self.wallet.network());
         if let Some(whitelist) = self.peers {
             node_builder = node_builder.add_peers(whitelist);
+        }
+        if let Some(path) = self.path {
+            node_builder = node_builder.add_data_dir(path);
         }
         match self.birthday {
             Some(birthday) => {

@@ -9,7 +9,6 @@ use core::mem;
 pub use kyoto::node::messages::SyncUpdate;
 pub use kyoto::ScriptBuf;
 use std::collections::HashSet;
-pub use tokio::sync::broadcast;
 
 use bdk_wallet::bitcoin::{BlockHash, Transaction};
 
@@ -25,6 +24,7 @@ pub use kyoto::node::{self, messages::NodeMessage};
 pub use kyoto::IndexedBlock;
 pub use kyoto::TrustedPeer;
 pub use kyoto::TxBroadcast;
+use kyoto::node::client::Receiver;
 
 pub mod builder;
 
@@ -74,7 +74,7 @@ pub struct Client<K> {
     // channel sender
     sender: node::client::ClientSender,
     // channel receiver
-    receiver: broadcast::Receiver<NodeMessage>,
+    receiver: kyoto::node::client::Receiver<NodeMessage>,
     // changes to local chain
     chain_changeset: local_chain::ChangeSet,
     // local cp
@@ -110,14 +110,14 @@ where
                 NodeMessage::Block(IndexedBlock { height, block }) => {
                     let hash = block.header.block_hash();
                     self.chain_changeset.insert(height, Some(hash));
-                    tracing::info!("Applying Block: {hash}");
+                    println!("Applying Block: {hash}");
                     let _ = self.graph.apply_block_relevant(&block, height);
                 }
                 NodeMessage::Transaction(_) => {}
                 NodeMessage::BlocksDisconnected(headers) => {
                     for header in headers {
                         let height = header.height;
-                        tracing::info!("Disconnecting block: {height}");
+                        println!("Disconnecting block: {height}");
                         self.chain_changeset.insert(height, None);
                     }
                 }
@@ -130,21 +130,21 @@ where
                         && self.cp.hash() == tip.hash
                     {
                         // return early if we're already synced
-                        tracing::info!("No updates.");
+                        println!("No updates.");
                         return None;
                     }
                     self.chain_changeset.insert(tip.height, Some(tip.hash));
 
-                    tracing::info!("Synced to tip {} {}", tip.height, tip.hash);
+                    println!("Synced to tip {} {}", tip.height, tip.hash);
                     break;
                 }
                 NodeMessage::TxSent(_) => {}
                 NodeMessage::TxBroadcastFailure(_) => {}
                 NodeMessage::Dialog(s) => {
-                    tracing::info!("{s}")
+                    println!("{s}")
                 }
                 NodeMessage::Warning(s) => {
-                    tracing::warn!("{s}")
+                    println!("{s}")
                 }
             }
         }

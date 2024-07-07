@@ -52,8 +52,7 @@ async fn main() -> anyhow::Result<()> {
         .add_birthday(header_cp)
         .add_peers(peers)
         .add_data_dir(".".parse().unwrap())
-        .build()
-        .await;
+        .build();
 
     tokio::task::spawn(async move { node.run().await });
 

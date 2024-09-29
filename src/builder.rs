@@ -53,7 +53,7 @@ use kyoto::{
     chain::checkpoints::{
         HeaderCheckpoint, MAINNET_HEADER_CP, REGTEST_HEADER_CP, SIGNET_HEADER_CP,
     },
-    BlockHash, DatabaseError, Network, Node, NodeBuilder, ScriptBuf, TrustedPeer,
+    BlockHash, DatabaseError, Network, Node, NodeBuilder, ScriptBuf, SqliteHeaderDb, TrustedPeer,
 };
 
 use crate::Client;
@@ -166,7 +166,7 @@ impl<'a> LightClientBuilder<'a> {
     }
 
     /// Build a light client node and a client to interact with the node.
-    pub fn build(self) -> Result<(Node, Client<KeychainKind>), BuilderError> {
+    pub fn build(self) -> Result<(Node<SqliteHeaderDb>, Client<KeychainKind>), BuilderError> {
         let network = self.wallet.network();
         let mut node_builder = NodeBuilder::new(network);
         if let Some(whitelist) = self.peers {

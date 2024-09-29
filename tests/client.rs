@@ -1,4 +1,5 @@
 // #![allow(unused)]
+use kyoto::SqliteHeaderDb;
 use std::net::IpAddr;
 use std::time::Duration;
 use tokio::task;
@@ -41,7 +42,10 @@ async fn wait_for_height(env: &TestEnv, height: u32) -> anyhow::Result<()> {
 fn init_node(
     env: &TestEnv,
     wallet: &bdk_wallet::Wallet,
-) -> anyhow::Result<(bdk_kyoto::Node, bdk_kyoto::Client<KeychainKind>)> {
+) -> anyhow::Result<(
+    bdk_kyoto::Node<SqliteHeaderDb>,
+    bdk_kyoto::Client<KeychainKind>,
+)> {
     let peer = env.bitcoind.params.p2p_socket.unwrap();
     let ip: IpAddr = (*peer.ip()).into();
     let port = peer.port();

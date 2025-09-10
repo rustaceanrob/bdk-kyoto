@@ -3,14 +3,14 @@
 //!
 //! If you have an existing project that leverages `bdk_wallet`, building the compact block filter
 //! _node_ and _client_ is simple. You may construct and configure a node to integrate with your
-//! wallet by using the [`BuilderExt`](crate::builder) and [`NodeBuilder`](crate::builder).
+//! wallet by using the [`BuilderExt`](crate::builder) and [`Builder`](crate::builder).
 //!
 //! ```no_run
 //! # const RECEIVE: &str = "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/0/*)";
 //! # const CHANGE: &str = "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/1/*)";
 //! use bdk_wallet::Wallet;
 //! use bdk_wallet::bitcoin::Network;
-//! use bdk_kyoto::builder::{NodeBuilder, NodeBuilderExt};
+//! use bdk_kyoto::builder::{Builder, BuilderExt};
 //! use bdk_kyoto::{LightClient, ScanType};
 //!
 //! #[tokio::main]
@@ -25,7 +25,7 @@
 //!         warning_subscriber: _,
 //!         mut update_subscriber,
 //!         node
-//!     } = NodeBuilder::new(Network::Signet).build_with_wallet(&wallet, ScanType::New)?;
+//!     } = Builder::new(Network::Signet).build_with_wallet(&wallet, ScanType::Sync)?;
 //!
 //!     tokio::task::spawn(async move { node.run().await });
 //!
@@ -38,8 +38,6 @@
 //! ```
 
 #![warn(missing_docs)]
-use std::collections::HashSet;
-
 use bdk_wallet::chain::BlockId;
 use bdk_wallet::chain::CheckPoint;
 pub use bdk_wallet::Update;
@@ -48,24 +46,23 @@ use bdk_wallet::chain::{keychain_txout::KeychainTxOutIndex, IndexedTxGraph};
 use bdk_wallet::chain::{ConfirmationBlockTime, TxUpdate};
 use bdk_wallet::KeychainKind;
 
-pub extern crate kyoto;
+pub extern crate bip157;
 
-pub use kyoto::builder::NodeDefault;
+pub use bip157::builder::NodeDefault;
 #[doc(inline)]
-pub use kyoto::{
-    ClientError, FeeRate, Info, NodeState, RejectPayload, RejectReason, Requester, ScriptBuf,
-    SyncUpdate, TrustedPeer, TxBroadcast, TxBroadcastPolicy, Txid, Warning,
+pub use bip157::{
+    BlockHash, ClientError, FeeRate, HeaderCheckpoint, Info, RejectPayload, RejectReason,
+    Requester, TrustedPeer, TxBroadcast, TxBroadcastPolicy, Txid, Warning,
 };
+use bip157::{Event, SyncUpdate};
 
 #[doc(inline)]
-pub use kyoto::Receiver;
+pub use bip157::Receiver;
 #[doc(inline)]
-pub use kyoto::UnboundedReceiver;
-use kyoto::{Event, IndexedBlock};
+pub use bip157::UnboundedReceiver;
 
 #[doc(inline)]
-pub use builder::NodeBuilderExt;
-
+pub use builder::BuilderExt;
 pub mod builder;
 
 #[derive(Debug)]
@@ -96,17 +93,30 @@ pub struct UpdateSubscriber {
 }
 
 impl UpdateSubscriber {
+    fn new(
+        receiver: UnboundedReceiver<Event>,
+        cp: CheckPoint,
+        graph: IndexedTxGraph<ConfirmationBlockTime, KeychainTxOutIndex<KeychainKind>>,
+    ) -> Self {
+        Self {
+            receiver,
+            cp,
+            graph,
+        }
+    }
     /// Return the most recent update from the node once it has synced to the network's tip.
     /// This may take a significant portion of time during wallet recoveries or dormant wallets.
     /// Note that you may call this method in a loop as long as the node is running.
+    ///
+    /// **Warning**
+    ///
+    /// This method is _not_ cancel safe. You cannot use it within a `tokio::select` arm.
     pub async fn update(&mut self) -> Result<Update, UpdateError> {
         let mut cp = self.cp.clone();
         while let Some(message) = self.receiver.recv().await {
             match message {
-                Event::Block(IndexedBlock { height, block }) => {
-                    let hash = block.header.block_hash();
-                    cp = cp.insert(BlockId { height, hash });
-                    let _ = self.graph.apply_block_relevant(&block, height);
+                Event::IndexedFilter(filter) => {
+                    let _block_hash = filter.block_hash();
                 }
                 Event::BlocksDisconnected {
                     accepted,
@@ -119,7 +129,7 @@ impl UpdateSubscriber {
                         });
                     }
                 }
-                Event::Synced(SyncUpdate {
+                Event::FiltersSynced(SyncUpdate {
                     tip: _,
                     recent_history,
                 }) => {
@@ -132,6 +142,7 @@ impl UpdateSubscriber {
                     self.cp = cp;
                     return Ok(self.get_scan_response());
                 }
+                _ => (),
             }
         }
         Err(UpdateError::NodeStopped)
@@ -172,60 +183,12 @@ impl std::error::Error for UpdateError {}
 /// How to scan compact block filters on start up.
 #[derive(Debug, Clone, Copy, Default)]
 pub enum ScanType {
-    /// Start a wallet sync that is known to have no transactions.
-    New,
     /// Sync the wallet from the last known wallet checkpoint to the rest of the network.
     #[default]
     Sync,
     /// Recover an old wallet by scanning after the specified height.
     Recovery {
         /// The height in the block chain to begin searching for transactions.
-        from_height: u32,
+        checkpoint: HeaderCheckpoint,
     },
-}
-
-/// Extend the functionality of [`Wallet`](bdk_wallet) for interoperablility
-/// with the light client.
-pub trait WalletExt {
-    /// Collect relevant scripts for addition to the node. Peeks scripts
-    /// `lookahead` + `last_revealed_index` for each keychain.
-    fn peek_revealed_plus_lookahead(&self) -> Box<dyn Iterator<Item = ScriptBuf>>;
-}
-
-impl WalletExt for bdk_wallet::Wallet {
-    fn peek_revealed_plus_lookahead(&self) -> Box<dyn Iterator<Item = ScriptBuf>> {
-        let mut spks: HashSet<ScriptBuf> = HashSet::new();
-        for keychain in [KeychainKind::External, KeychainKind::Internal] {
-            let last_revealed = self.spk_index().last_revealed_index(keychain).unwrap_or(0);
-            let lookahead_index = last_revealed + self.spk_index().lookahead();
-            for index in 0..=lookahead_index {
-                spks.insert(self.peek_address(keychain, index).script_pubkey());
-            }
-        }
-        Box::new(spks.into_iter())
-    }
-}
-
-/// Extend the [`Requester`] functionality to work conveniently with a [`Wallet`](bdk_wallet).
-pub trait RequesterExt {
-    /// Add all revealed scripts to the node to monitor.
-    fn add_revealed_scripts<'a>(
-        &'a self,
-        wallet: &'a bdk_wallet::Wallet,
-    ) -> Result<(), ClientError>;
-}
-
-impl RequesterExt for Requester {
-    fn add_revealed_scripts<'a>(
-        &'a self,
-        wallet: &'a bdk_wallet::Wallet,
-    ) -> Result<(), ClientError> {
-        for keychain in [KeychainKind::External, KeychainKind::Internal] {
-            let scripts = wallet.spk_index().revealed_keychain_spks(keychain);
-            for (_, script) in scripts {
-                self.add_script(script)?;
-            }
-        }
-        Ok(())
-    }
 }

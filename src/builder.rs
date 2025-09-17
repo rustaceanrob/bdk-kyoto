@@ -80,16 +80,15 @@ impl BuilderExt for Builder {
         }
         match scan_type {
             ScanType::Sync => {
-                let block_id = wallet.latest_checkpoint();
-                let header_cp = HeaderCheckpoint::new(block_id.height(), block_id.hash());
-                self = self.after_checkpoint(header_cp);
+                let current_cp = wallet.latest_checkpoint();
+                let checkpoint = HeaderCheckpoint::new(current_cp.height(), current_cp.hash());
+                self = self.after_checkpoint(checkpoint)
             }
-            ScanType::Recovery { checkpoint } => {
-                if wallet.latest_checkpoint().height() < checkpoint.height {
-                    self = self.after_checkpoint(checkpoint);
-                }
-            }
-        };
+            ScanType::Recovery {
+                used_script_index: _,
+                checkpoint,
+            } => self = self.after_checkpoint(checkpoint),
+        }
         let (node, client) = self.build()?;
         let bip157::Client {
             requester,
@@ -98,8 +97,13 @@ impl BuilderExt for Builder {
             event_rx,
         } = client;
         let indexed_graph = IndexedTxGraph::new(wallet.spk_index().clone());
-        let update_subscriber =
-            UpdateSubscriber::new(event_rx, wallet.latest_checkpoint(), indexed_graph);
+        let update_subscriber = UpdateSubscriber::new(
+            requester.clone(),
+            scan_type,
+            event_rx,
+            wallet.latest_checkpoint(),
+            indexed_graph,
+        );
         Ok(LightClient {
             requester,
             info_subscriber: info_rx,

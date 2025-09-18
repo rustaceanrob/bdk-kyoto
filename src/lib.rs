@@ -50,12 +50,12 @@ use bdk_wallet::KeychainKind;
 
 pub extern crate bip157;
 
-pub use bip157::builder::NodeDefault;
+use bip157::chain::BlockHeaderChanges;
 use bip157::ScriptBuf;
 #[doc(inline)]
 pub use bip157::{
-    BlockHash, ClientError, FeeRate, HeaderCheckpoint, Info, RejectPayload, RejectReason,
-    Requester, TrustedPeer, TxBroadcast, TxBroadcastPolicy, Txid, Warning,
+    BlockHash, ClientError, FeeRate, HeaderCheckpoint, Info, Node, RejectPayload, RejectReason,
+    Requester, TrustedPeer, TxBroadcast, TxBroadcastPolicy, Warning, Wtxid,
 };
 use bip157::{Event, SyncUpdate};
 
@@ -80,7 +80,7 @@ pub struct LightClient {
     /// Receive wallet updates from a node.
     pub update_subscriber: UpdateSubscriber,
     /// The underlying node that must be run to fetch blocks from peers.
-    pub node: NodeDefault,
+    pub node: Node,
 }
 
 /// Interpret events from a node that is running to apply
@@ -142,15 +142,23 @@ impl UpdateSubscriber {
                         self.queued_blocks.push(block_hash);
                     }
                 }
-                Event::BlocksDisconnected {
+                Event::ChainUpdate(BlockHeaderChanges::Connected(at)) => {
+                    let block_id = BlockId {
+                        hash: at.block_hash(),
+                        height: at.height,
+                    };
+                    cp = cp.insert(block_id);
+                }
+                Event::ChainUpdate(BlockHeaderChanges::Reorganized {
                     accepted,
-                    disconnected: _,
-                } => {
+                    reorganized: _,
+                }) => {
                     for header in accepted {
-                        cp = cp.insert(BlockId {
-                            height: header.height,
+                        let block_id = BlockId {
                             hash: header.block_hash(),
-                        });
+                            height: header.height,
+                        };
+                        cp = cp.insert(block_id);
                     }
                 }
                 Event::FiltersSynced(SyncUpdate {

@@ -1,6 +1,6 @@
 use bdk_kyoto::builder::{Builder, BuilderExt};
 use bdk_kyoto::{
-    HeaderCheckpoint, Info, LightClient, Receiver, ScanType, UnboundedReceiver, Warning,
+    HeaderCheckpoint, Info, LoggingSubscribers, Receiver, ScanType, UnboundedReceiver, Warning,
 };
 use bdk_wallet::bitcoin::Network;
 use bdk_wallet::{KeychainKind, Wallet};
@@ -56,17 +56,15 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // The light client builder handles the logic of inserting the SPKs
-    let LightClient {
-        requester,
-        info_subscriber,
-        warning_subscriber,
-        mut update_subscriber,
-        node,
-    } = Builder::new(NETWORK)
+    let client = Builder::new(NETWORK)
         .build_with_wallet(&wallet, scan_type)
         .unwrap();
 
-    tokio::task::spawn(async move { node.run().await });
+    let (client, logging, mut update_subscriber) = client.start();
+    let LoggingSubscribers {
+        info_subscriber,
+        warning_subscriber,
+    } = logging;
     tokio::task::spawn(async move { traces(info_subscriber, warning_subscriber).await });
 
     // Sync and apply updates. We can do this in a continual loop while the "application" is running.
@@ -84,7 +82,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Local chain tip: {}", wallet.local_chain().tip().height());
     let next = wallet.reveal_next_address(KeychainKind::External).address;
     tracing::info!("Next receiving address: {next}");
-    let fee_filter = requester.broadcast_min_feerate().await.unwrap();
+    let fee_filter = client.as_ref().broadcast_min_feerate().await.unwrap();
     tracing::info!("Broadcast minimum fee rate: {:#}", fee_filter);
     return Ok(());
 }

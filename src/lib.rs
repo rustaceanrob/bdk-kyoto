@@ -51,6 +51,7 @@ use bdk_wallet::KeychainKind;
 pub extern crate bip157;
 
 use bip157::chain::BlockHeaderChanges;
+use bip157::tokio;
 use bip157::ScriptBuf;
 #[doc(inline)]
 pub use bip157::{
@@ -68,19 +69,84 @@ pub use bip157::UnboundedReceiver;
 pub use builder::BuilderExt;
 pub mod builder;
 
+/// Subscribe to events, notably
 #[derive(Debug)]
-/// A node and associated structs to send and receive events to and from the node.
-pub struct LightClient {
-    /// Send events to a running node (i.e. broadcast a transaction).
-    pub requester: Requester,
+pub struct LoggingSubscribers {
     /// Receive informational messages as the node runs.
     pub info_subscriber: Receiver<Info>,
     /// Receive warnings from the node as it runs.
     pub warning_subscriber: UnboundedReceiver<Warning>,
-    /// Receive wallet updates from a node.
-    pub update_subscriber: UpdateSubscriber,
-    /// The underlying node that must be run to fetch blocks from peers.
-    pub node: Node,
+}
+
+/// Client state when idle.
+pub struct Idle;
+/// Client state when active.
+pub struct Active;
+
+mod sealed {
+    pub trait Sealed {}
+}
+
+impl sealed::Sealed for Idle {}
+impl sealed::Sealed for Active {}
+
+/// State of the client
+pub trait State: sealed::Sealed {}
+
+impl State for Idle {}
+impl State for Active {}
+
+#[derive(Debug)]
+/// A node and associated structs to send and receive events to and from the node.
+pub struct LightClient<S: State> {
+    requester: Requester,
+    logging: Option<LoggingSubscribers>,
+    update_subscriber: Option<UpdateSubscriber>,
+    node: Option<Node>,
+    _marker: core::marker::PhantomData<S>,
+}
+
+impl LightClient<Idle> {
+    fn new(
+        requester: Requester,
+        info_rx: Receiver<Info>,
+        warn_rx: UnboundedReceiver<Warning>,
+        update_subscriber: UpdateSubscriber,
+        node: Node,
+    ) -> LightClient<Idle> {
+        LightClient {
+            requester,
+            logging: Some(LoggingSubscribers {
+                info_subscriber: info_rx,
+                warning_subscriber: warn_rx,
+            }),
+            update_subscriber: Some(update_subscriber),
+            node: Some(node),
+            _marker: core::marker::PhantomData,
+        }
+    }
+
+    /// Start the client on a new `tokio` task.
+    pub fn start(mut self) -> (LightClient<Active>, LoggingSubscribers, UpdateSubscriber) {
+        let logging = core::mem::take(&mut self.logging).expect("node starts once");
+        let update = core::mem::take(&mut self.update_subscriber).expect("node starts once");
+        let node = core::mem::take(&mut self.node).expect("node starts once");
+        tokio::task::spawn(async move { node.run().await });
+        let client = LightClient {
+            requester: self.requester,
+            logging: None,
+            update_subscriber: None,
+            node: None,
+            _marker: core::marker::PhantomData,
+        };
+        (client, logging, update)
+    }
+}
+
+impl AsRef<Requester> for LightClient<Active> {
+    fn as_ref(&self) -> &Requester {
+        &self.requester
+    }
 }
 
 /// Interpret events from a node that is running to apply

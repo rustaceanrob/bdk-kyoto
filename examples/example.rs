@@ -1,5 +1,5 @@
 use bdk_kyoto::builder::{Builder, BuilderExt};
-use bdk_kyoto::{HeaderCheckpoint, Info, Receiver, ScanType, UnboundedReceiver, Warning};
+use bdk_kyoto::{HashCheckpoint, Info, Receiver, ScanType, UnboundedReceiver, Warning};
 use bdk_wallet::bitcoin::Network;
 use bdk_wallet::{KeychainKind, Wallet};
 use tokio::select;
@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
 
     let scan_type = ScanType::Recovery {
         used_script_index: USER_SCRIPTS_USED,
-        checkpoint: HeaderCheckpoint::from_genesis(NETWORK),
+        checkpoint: HashCheckpoint::from_genesis(NETWORK),
     };
 
     // The light client builder handles the logic of inserting the SPKs

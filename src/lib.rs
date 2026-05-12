@@ -52,7 +52,7 @@ use bip157::IndexedBlock;
 use bip157::ScriptBuf;
 #[doc(inline)]
 pub use bip157::{
-    BlockHash, ClientError, FeeRate, HeaderCheckpoint, Info, Node, RejectPayload, RejectReason,
+    BlockHash, ClientError, FeeRate, HashCheckpoint, Info, Node, RejectPayload, RejectReason,
     Requester, TrustedPeer, Warning, Wtxid,
 };
 use bip157::{Event, SyncUpdate};
@@ -324,7 +324,7 @@ impl<W: Wallets> UpdateSubscriber<W> {
                         single.apply_chain_event(&changeset);
                     }
                     if let Some(multiple) = self.multiple_updates_builder.as_mut() {
-                        for (_id, builder) in multiple.iter_mut() {
+                        for builder in multiple.values_mut() {
                             builder.apply_chain_event(&changeset);
                         }
                     }
@@ -343,7 +343,7 @@ impl<W: Wallets> UpdateSubscriber<W> {
                             single.apply_block_event(&block);
                         }
                         if let Some(multiple) = self.multiple_updates_builder.as_mut() {
-                            for (_id, builder) in multiple.iter_mut() {
+                            for builder in multiple.values_mut() {
                                 builder.apply_block_event(&block);
                             }
                         }
@@ -353,7 +353,7 @@ impl<W: Wallets> UpdateSubscriber<W> {
                             .extend(single.peek_script_to_keychain_lookahead());
                     }
                     if let Some(multiple) = self.multiple_updates_builder.as_mut() {
-                        for (_id, builder) in multiple.iter() {
+                        for builder in multiple.values() {
                             self.spk_cache
                                 .extend(builder.peek_script_to_keychain_lookahead());
                         }
@@ -535,6 +535,6 @@ pub enum ScanType {
         /// The amount of scripts used by the wallet that is being recovered.
         used_script_index: u32,
         /// The height in the block chain to begin searching for transactions.
-        checkpoint: HeaderCheckpoint,
+        checkpoint: HashCheckpoint,
     },
 }

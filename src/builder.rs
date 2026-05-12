@@ -54,7 +54,7 @@ use bdk_wallet::{
     KeychainKind, Wallet,
 };
 pub use bip157::Builder;
-use bip157::{chain::ChainState, HeaderCheckpoint};
+use bip157::{chain::ChainState, HashCheckpoint};
 
 use crate::{state::Idle, LightClient, LoggingSubscribers, ScanType, UpdateSubscriber};
 
@@ -192,14 +192,14 @@ impl BuilderExt for Builder {
 }
 
 /// Walk back 7 blocks in case the last sync was an orphan block.
-fn walk_back_max_reorg(checkpoint: CheckPoint) -> HeaderCheckpoint {
-    let mut ret_cp = HeaderCheckpoint::new(checkpoint.height(), checkpoint.hash());
+fn walk_back_max_reorg(checkpoint: CheckPoint) -> HashCheckpoint {
+    let mut ret_cp = HashCheckpoint::new(checkpoint.height(), checkpoint.hash());
     let cp_iter = checkpoint.iter();
     for (index, next) in cp_iter.enumerate() {
         if index > IMPOSSIBLE_REORG_DEPTH {
             return ret_cp;
         }
-        ret_cp = HeaderCheckpoint::new(next.height(), next.hash());
+        ret_cp = HashCheckpoint::new(next.height(), next.hash());
     }
     ret_cp
 }
